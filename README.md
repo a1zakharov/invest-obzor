@@ -125,6 +125,16 @@ docker compose restart invest-obzor
 
 Документация банка: [токены](https://developer.tbank.ru/invest/intro/intro/token), [счета и уровни доступа](https://developer.tbank.ru/invest/services/accounts/users), [операции и портфель](https://developer.tbank.ru/invest/services/operations/methods), [REST endpoint](https://developer.tbank.ru/invest/intro/developer/protocols/).
 
+### Сертификат Минцифры только для API Т-Инвестиций
+
+Клиент включает публичный RSA-сертификат **Russian Trusted Root CA**, опубликованный по ссылке с [официальной страницы Т-Банка](https://status.tbank-online.com/certificates/). Сертификат находится в `certs/russian-trusted-root-ca.crt` и копируется в `/app/certs/` при сборке Docker-образа. Источник, срок действия и SHA-256 отпечаток записаны в [certs/README.md](certs/README.md).
+
+Файл загружается через `SSLContext.load_verify_locations()` **только в отдельный TLS-контекст клиента Т-Инвестиций**. Системные хранилища сервера и контейнера не меняются; `update-ca-certificates`, глобальные `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` и подмена стандартного SSL-контекста не используются. Остальные процессы и HTTP-клиенты дополнительных прав доверия не получают. Проверка цепочки сертификатов и имени `invest-public-api.tbank.ru` включена; перенаправления запрещены.
+
+Обычно дополнительных настроек не требуется. Для другого явно выбранного PEM-набора есть `INVEST_TBANK_CA_FILE` (в Compose по умолчанию `/app/certs/russian-trusted-root-ca.crt`). При неправильном или отсутствующем файле клиент сообщает об ошибке и не отключает TLS-проверку. После обновления сертификата пересоберите образ: `docker compose up -d --build`.
+
+Ошибка проверки сертификата теперь показывается отдельно от сетевого сбоя. В [документации Т-Инвестиций](https://developer.tbank.ru/invest/intro/developer/network) отсутствие сертификатов НУЦ Минцифры указано как одна из причин ошибок подключения. Наличие в приложении дополнительного CA относится к исходящему HTTPS-запросу к банку; оно не добавляет HTTPS к веб-интерфейсу сервиса.
+
 ## Хранение API-токена
 
 - Токен хранится **только на сервере**, в таблице `broker_credentials`, в зашифрованном виде (Fernet: аутентифицированное шифрование из `cryptography`). Ключ и токен не записываются в Git, логи, HTML, cookies, `localStorage` или `sessionStorage`.
@@ -247,6 +257,7 @@ node --check static/broker.js
 server.py                  HTTP API, SQLite, расчёты и импорт
 access_control.py         Пароль, сессии и команда смены пароля
 tbank.py                   Read-only REST-клиент, шифрование, синхронизация
+certs/                    Публичный CA и сведения о его источнике
 requirements.txt           Зависимость cryptography
 static/index.html          Оболочка интерфейса
 static/app.js              Интерфейс, формы и SVG-графики

@@ -7,6 +7,7 @@ services:
       INVEST_ALLOWED_HOSTS: "${INVEST_ALLOWED_HOSTS:-}"
       INVEST_AUTH_FILE: "${INVEST_AUTH_FILE:-}"
       INVEST_COOKIE_SECURE: "${INVEST_COOKIE_SECURE:-0}"
+      INVEST_TBANK_CA_FILE: "${INVEST_TBANK_CA_FILE:-/app/certs/russian-trusted-root-ca.crt}"
     volumes:
       - invest-data:/data
       - invest-secrets:/secrets

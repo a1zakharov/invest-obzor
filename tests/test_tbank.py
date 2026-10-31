@@ -2,6 +2,8 @@ import copy
 import io
 import json
 import os
+import hashlib
+import ssl
 import sqlite3
 import stat
 import sys
@@ -186,6 +188,36 @@ class BrokerTests(unittest.TestCase):
         with self.assertRaises(tbank.BrokerError):
             client.call('OrdersService/PostOrder', {})
         client._opener.open.assert_not_called()
+
+    def test_broker_ca_is_loaded_without_changing_default_trust(self):
+        def fingerprints(context):
+            return {hashlib.sha256(cert).hexdigest() for cert in context.get_ca_certs(binary_form=True)}
+        before = fingerprints(ssl.create_default_context())
+        context = tbank.tls_context()
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertIn('d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31', fingerprints(context))
+        self.assertEqual(fingerprints(ssl.create_default_context()), before)
+
+    def test_missing_or_invalid_custom_ca_fails_closed(self):
+        missing = Path(self.temp.name)/'missing.crt'
+        invalid = Path(self.temp.name)/'invalid.crt'
+        invalid.write_text('Not a certificate')
+        for path in (missing, invalid):
+            with self.subTest(path=path.name), patch.dict(os.environ, {'INVEST_TBANK_CA_FILE': str(path)}):
+                with self.assertRaisesRegex(tbank.BrokerError, 'загрузить сертификаты'):
+                    tbank.Client(TOKEN)
+
+    def test_tls_errors_are_distinct_and_do_not_reflect_upstream_secrets(self):
+        for error in [ssl.SSLCertVerificationError(TOKEN), URLError(ssl.SSLCertVerificationError(TOKEN))]:
+            with self.subTest(error=type(error).__name__):
+                client = tbank.Client(TOKEN)
+                client._opener = Mock()
+                client._opener.open.side_effect = error
+                with self.assertRaises(tbank.BrokerError) as caught:
+                    client.call('accounts', {})
+                self.assertIn('TLS-сертификат', str(caught.exception))
+                self.assertNotIn(TOKEN, str(caught.exception))
 
     def test_transport_auth_in_header_only_and_no_redirects(self):
         client = tbank.Client(TOKEN)

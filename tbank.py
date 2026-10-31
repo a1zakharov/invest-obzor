@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import socket
+import ssl
 import stat
 import threading
 import time
@@ -17,7 +18,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 API_URL = "https://invest-public-api.tbank.ru/rest/"
 METHODS = {
@@ -29,6 +30,8 @@ METHODS = {
 SYNC_LOCK = threading.Lock()
 MAX_RESPONSE = 16_000_000
 MAX_PAGES = 100
+TLS_ERROR = "Не удалось проверить TLS-сертификат Т-Инвестиций. Проверьте сертификаты приложения (INVEST_TBANK_CA_FILE)."
+NETWORK_ERROR = "Не удалось связаться с Т-Инвестициями. Проверьте интернет и повторите запрос."
 
 
 class BrokerError(Exception):
@@ -115,11 +118,22 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def tls_context():
+    # Extend only this client's context, never system/process-wide trust settings.
+    context = ssl.create_default_context()
+    filename = os.environ.get("INVEST_TBANK_CA_FILE") or str(Path(__file__).resolve().parent / "certs" / "russian-trusted-root-ca.crt")
+    try:
+        context.load_verify_locations(cafile=filename)
+    except (OSError, ssl.SSLError):
+        raise BrokerError("Не удалось загрузить сертификаты Т-Инвестиций. Проверьте файл INVEST_TBANK_CA_FILE.") from None
+    return context
+
+
 class Client:
     def __init__(self, token):
         self._token = token
         # Ignore ambient proxies: this client sends a financial credential.
-        self._opener = build_opener(ProxyHandler({}), NoRedirect())
+        self._opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPSHandler(context=tls_context()))
 
     def call(self, method, data):
         if method not in METHODS:
@@ -149,8 +163,13 @@ class Client:
             else:
                 message = f"Т-Инвестиции временно недоступны или отклонили запрос (HTTP {status})."
             raise BrokerError(message) from None
-        except (URLError, TimeoutError, socket.timeout, OSError):
-            raise BrokerError("Не удалось связаться с Т-Инвестициями. Проверьте интернет и повторите запрос.") from None
+        except ssl.SSLCertVerificationError:
+            raise BrokerError(TLS_ERROR) from None
+        except URLError as exc:
+            message = TLS_ERROR if isinstance(exc.reason, ssl.SSLCertVerificationError) else NETWORK_ERROR
+            raise BrokerError(message) from None
+        except (TimeoutError, socket.timeout, OSError):
+            raise BrokerError(NETWORK_ERROR) from None
         except (ValueError, UnicodeError):
             raise BrokerError("Т-Инвестиции вернули некорректный ответ") from None
 
