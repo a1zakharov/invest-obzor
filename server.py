@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import tbank
+import access_control
 
 DefaultContext.prec = 36
 getcontext().prec = 36
@@ -446,6 +447,16 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self):
         try:
             path = urlparse(self.path).path
+            access = getattr(self.server, "access", None)
+            logged_in = access is None or access.authenticated(self.headers.get("Cookie"))
+            public_api = path in ("/api/health", "/api/auth/status", "/api/auth/login")
+            public_static = path in ("/login.html", "/login.js", "/login.css", "/favicon.svg")
+            if not logged_in and not public_api and not public_static:
+                if path.startswith("/api/"):
+                    self.respond(401, {"error": "Войдите в приложение"})
+                else:
+                    self.respond(303, b"", "text/plain", {"Location": "/login.html"})
+                return
             if path.startswith("/api/"):
                 # Reject cross-origin requests and DNS rebinding, including in explicit LAN deployments.
                 host = self.headers.get("Host", "")
@@ -496,6 +507,22 @@ class Handler(BaseHTTPRequestHandler):
     def api(self, db, path, data):
         parts = path.strip("/").split("/")
         method = self.command
+        access = getattr(self.server, "access", None)
+        if path == "/api/auth/status" and method == "GET":
+            return {"required": bool(access and access.enabled), "authenticated": access is None or access.authenticated(self.headers.get("Cookie"))}
+        if path == "/api/auth/login" and method == "POST":
+            try:
+                if access is None:
+                    raise access_control.AccessError("Вход по паролю не настроен")
+                cookie = access.login(data, self.client_address[0])
+                self.respond(200, {"ok": True}, extra={"Set-Cookie": cookie})
+            except access_control.AccessError as exc:
+                self.respond(401, {"error": str(exc)})
+            return None
+        if path == "/api/auth/logout" and method == "POST":
+            cookie = access.logout(self.headers.get("Cookie")) if access else ""
+            self.respond(200, {"ok": True}, extra={"Set-Cookie": cookie})
+            return None
         if path == "/api/tbank" or path.startswith("/api/tbank/"):
             return tbank.route(db, path, method, data)
         if path == "/api/health" and method == "GET":
@@ -605,7 +632,9 @@ def main():
     args = parser.parse_args()
     DB_PATH = args.db.resolve()
     init_db()
+    access = access_control.Access.from_env()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server.access = access
     print(f"Invest Obzor: http://localhost:{args.port} · данные: {DB_PATH}", flush=True)
     try:
         server.serve_forever()

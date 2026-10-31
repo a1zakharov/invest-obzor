@@ -4,7 +4,7 @@ WORKDIR /app
 RUN groupadd --gid 10001 invest && useradd --uid 10001 --gid invest --no-create-home invest && mkdir /data /secrets && chown invest:invest /data /secrets && chmod 700 /secrets
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY --chown=invest:invest server.py tbank.py ./
+COPY --chown=invest:invest server.py tbank.py access_control.py ./
 COPY --chown=invest:invest static/ ./static/
 USER invest
 EXPOSE 8080

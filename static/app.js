@@ -41,6 +41,7 @@ let toastTimer, importText = '', importValidated = false;
 async function api(path, method = 'GET', body) {
   const response = await fetch(`/api${path}`, {method,headers:body === undefined ? {} : {'Content-Type':'application/json'},body:body === undefined ? undefined : JSON.stringify(body)});
   const data = await response.json();
+  if(response.status===401){location.replace('/login.html');throw new Error('Войдите в приложение');}
   if (!response.ok) throw new Error(data.error || 'Не удалось выполнить запрос');
   return data;
 }
@@ -56,6 +57,8 @@ async function refresh(pid = state.pid) {
   const meta = await api('/meta');
   if (loadId !== state.loadId) return;
   state.meta = meta;
+  const authentication=await api('/auth/status');
+  $('#logout').hidden=!authentication.required;
   state.broker = await api('/tbank');
   if (loadId !== state.loadId) return;
   if (!state.broker.accounts.some(a=>a.id===state.brokerId)) state.brokerId=state.broker.accounts[0]?.id || null;
@@ -359,6 +362,10 @@ document.addEventListener('change',async event=>{
   }catch(error){const box=$('.form-error',$('#modal'));if(box&&$('#modal').open)box.textContent=error.message;else toast(error.message,true);}
 });
 $('#menu-toggle').addEventListener('click',()=>{const open=$('#sidebar').classList.toggle('open');$('#menu-toggle').setAttribute('aria-expanded',String(open));});
+$('#logout').addEventListener('click',async()=>{
+  try{await api('/auth/logout','POST',{});location.replace('/login.html');}
+  catch(error){toast(error.message,true);}
+});
 document.addEventListener('click',event=>{if(!event.target.closest('.sidebar,#menu-toggle')){$('#sidebar').classList.remove('open');$('#menu-toggle').setAttribute('aria-expanded','false');}});
 window.addEventListener('hashchange',()=>{if(state.meta)render();$('#sidebar').classList.remove('open');$('#menu-toggle').setAttribute('aria-expanded','false');});
 refresh().catch(error=>{

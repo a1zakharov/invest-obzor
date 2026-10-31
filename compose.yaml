@@ -5,6 +5,8 @@ services:
       - "${INVEST_BIND_ADDRESS:-127.0.0.1}:${INVEST_PORT:-8080}:8080"
     environment:
       INVEST_ALLOWED_HOSTS: "${INVEST_ALLOWED_HOSTS:-}"
+      INVEST_AUTH_FILE: "${INVEST_AUTH_FILE:-}"
+      INVEST_COOKIE_SECURE: "${INVEST_COOKIE_SECURE:-0}"
     volumes:
       - invest-data:/data
       - invest-secrets:/secrets

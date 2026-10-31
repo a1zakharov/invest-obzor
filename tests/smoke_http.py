@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server
 import tbank
+import access_control
 
 
 class QuietHandler(server.Handler):
@@ -192,6 +193,30 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(self.request('/api/tbank/token', 'DELETE')[0], 200)
             self.assertFalse(self.request('/api/tbank')[1]['configured'])
         self.assertEqual(self.request('/.secrets/master.key')[0], 404)
+
+    def test_login_protects_ui_data_and_broker_credentials(self):
+        password = 'test-server-login-password-123'
+        config = Path(self.temp.name)/'auth.json'
+        access_control.write_password(config, 'chat', password, force=True)
+        self.httpd.access = access_control.Access(config)
+        try:
+            for endpoint in ['/api/meta','/api/backup','/api/tbank']:
+                self.assertEqual(self.request(endpoint)[0], 401)
+            self.assertEqual(self.request('/api/tbank/token', 'PUT', {'token':'a'*40})[0], 401)
+            self.assertEqual(self.request('/')[0], 303)
+            self.assertEqual(self.request('/login.html')[0], 200)
+            self.assertEqual(self.request('/api/health')[0], 200)
+            self.assertEqual(self.request('/api/auth/login','POST', {'username':'chat','password':'wrong'})[0], 401)
+            status,body,headers=self.request('/api/auth/login','POST', {'username':'chat','password':password})
+            self.assertEqual(status,200)
+            self.assertNotIn(password,json.dumps(body))
+            cookie=headers['Set-Cookie'].split(';')[0]
+            self.assertEqual(self.request('/api/meta',headers={'Cookie':cookie})[0],200)
+            self.assertEqual(self.request('/api/auth/logout','POST',{},headers={'Cookie':cookie})[0],200)
+            self.assertEqual(self.request('/api/meta',headers={'Cookie':cookie})[0],401)
+            self.assertEqual(self.request('/api/auth/login','POST',{'username':'chat','password':password},headers={'Origin':'http://evil.example'})[0],403)
+        finally:
+            del self.httpd.access
 
 
 if __name__ == '__main__':
