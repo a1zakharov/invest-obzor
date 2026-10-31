@@ -1,0 +1,4 @@
+date,type,ticker,name,kind,category,currency,quantity,price,amount,fee,tax,fx_rate,note
+2025-01-10,deposit,,,,,RUB,,,100000,0,0,1,Первое пополнение
+2025-01-15,buy,SBER,Сбербанк,stock,Финансы,RUB,100,250,,10,0,1,Пример покупки
+2025-07-20,dividend,SBER,Сбербанк,stock,Финансы,RUB,,,3484,0,452.92,1,Пример выплаты
