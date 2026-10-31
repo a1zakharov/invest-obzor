@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from contextlib import closing
 from decimal import Decimal
 from http.client import HTTPConnection
@@ -14,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server
+import tbank
 
 
 class QuietHandler(server.Handler):
@@ -63,7 +65,7 @@ class HTTPTests(unittest.TestCase):
         self.request(self.base, 'DELETE')
 
     def test_static_application_and_all_assets(self):
-        for path in ['/', '/app.js', '/styles.css', '/favicon.svg', '/example.csv']:
+        for path in ['/', '/app.js', '/broker.js', '/styles.css', '/favicon.svg', '/example.csv']:
             with self.subTest(path=path):
                 status, body, headers = self.request(path)
                 self.assertEqual(status, 200)
@@ -154,6 +156,33 @@ class HTTPTests(unittest.TestCase):
         rates = {r['currency']: r['rub'] for r in self.request('/api/meta')[1]['rates']}
         self.assertEqual(rates['RUB'], '1')
         self.assertEqual(rates['USD'], '90')
+
+    def test_broker_token_is_never_returned_or_backed_up(self):
+        token = 'test-readonly-token-' + 'x' * 40
+        account = {'id': '123', 'accessLevel': 'ACCOUNT_ACCESS_LEVEL_READ_ONLY', 'name': 'Test'}
+        keyfile = Path(self.temp.name)/'secret'/'master.key'
+        with patch.dict('os.environ', {'INVEST_MASTER_KEY_FILE': str(keyfile)}), \
+             patch.object(tbank.Client, 'accounts', return_value=[account]):
+            status, body, _ = self.request('/api/tbank/token', 'PUT', {'token': token})
+            self.assertEqual(status, 200)
+            self.assertNotIn(token, json.dumps(body))
+            status, body, _ = self.request('/api/tbank')
+            self.assertTrue(body['configured'])
+            self.assertNotIn(token, json.dumps(body))
+            with server.connection() as db:
+                ciphertext = db.execute('SELECT ciphertext FROM broker_credentials').fetchone()[0]
+            status, backup, _ = self.request('/api/backup')
+            self.assertEqual(status, 200)
+            self.assertNotIn(token.encode(), backup)
+            self.assertNotIn(ciphertext, backup)
+            file = Path(self.temp.name)/'no-credentials.sqlite3'
+            file.write_bytes(backup)
+            with closing(sqlite3.connect(file)) as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM broker_credentials').fetchone()[0], 0)
+                self.assertEqual(db.execute('SELECT count(*) FROM broker_accounts').fetchone()[0], 1)
+            self.assertEqual(self.request('/api/tbank/token', 'DELETE')[0], 200)
+            self.assertFalse(self.request('/api/tbank')[1]['configured'])
+        self.assertEqual(self.request('/.secrets/master.key')[0], 404)
 
 
 if __name__ == '__main__':

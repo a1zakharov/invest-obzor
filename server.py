@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Invest Obzor: offline portfolio accounting, Python standard library only."""
+"""Invest Obzor: local portfolio accounting and read-only broker integration."""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +17,8 @@ from decimal import DefaultContext, Decimal, InvalidOperation, getcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+
+import tbank
 
 DefaultContext.prec = 36
 getcontext().prec = 36
@@ -125,6 +127,7 @@ def init_db():
           hash TEXT NOT NULL, PRIMARY KEY(portfolio_id, hash)
         );
         """)
+        tbank.initialize(db)
         # Foreign currencies must be configured explicitly; never present example rates as live data.
         db.execute("INSERT OR IGNORE INTO rates VALUES ('RUB', '1', ?)", (now(),))
 
@@ -481,8 +484,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             mime = mimetypes.guess_type(str(file))[0] or "application/octet-stream"
             self.respond(200, file.read_bytes(), mime + ("; charset=utf-8" if mime.startswith("text/") or "javascript" in mime else ""))
-        except (ValidationError, json.JSONDecodeError, ValueError, TypeError, InvalidOperation, OverflowError) as exc:
-            self.respond(400, {"error": str(exc) if isinstance(exc, ValidationError) else "Проверьте формат данных запроса"})
+        except (ValidationError, tbank.BrokerError, json.JSONDecodeError, ValueError, TypeError, InvalidOperation, OverflowError) as exc:
+            self.respond(400, {"error": str(exc) if isinstance(exc, (ValidationError, tbank.BrokerError)) else "Проверьте формат данных запроса"})
         except sqlite3.IntegrityError:
             self.respond(400, {"error": "Тикер уже существует или запись используется в операциях"})
         except sqlite3.OperationalError:
@@ -491,6 +494,8 @@ class Handler(BaseHTTPRequestHandler):
     def api(self, db, path, data):
         parts = path.strip("/").split("/")
         method = self.command
+        if path == "/api/tbank" or path.startswith("/api/tbank/"):
+            return tbank.route(db, path, method, data)
         if path == "/api/health" and method == "GET":
             return {"status": "ok", "version": 1}
         if path == "/api/meta" and method == "GET":
@@ -521,6 +526,10 @@ class Handler(BaseHTTPRequestHandler):
                 filename = Path(directory) / "backup.sqlite3"
                 with closing(sqlite3.connect(filename)) as target:
                     db.backup(target)
+                    # Backups contain financial data, but never reusable credentials.
+                    target.execute("DELETE FROM broker_credentials")
+                    target.commit()
+                    target.execute("VACUUM")
                 self.respond(200, filename.read_bytes(), "application/octet-stream",
                              {"Content-Disposition": f'attachment; filename="invest-obzor-{date.today()}.sqlite3"'})
             return None

@@ -1,3 +1,43 @@
+.broker-connection {
+  margin-bottom: 22px;
+}
+.broker-connection summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.9;
+}
+.broker-connection summary .icon {
+  margin-right: 7px;
+  color: #72996c;
+}
+.broker-connection summary .badge {
+  margin-left: 12px;
+}
+.broker-connection form {
+  margin-top: 18px;
+  max-width: 650px;
+}
+.broker-account-controls {
+  margin-bottom: 22px;
+}
+.broker-sync-row {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 18px;
+}
+.broker-sync-row .button {
+  flex-shrink: 0;
+}
+@media(max-width: 600px) {
+  .broker-sync-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
 :root {
   --bg:#f5f6f8;
   --card:#fff;

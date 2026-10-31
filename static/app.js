@@ -13,7 +13,7 @@ const month = value => new Intl.DateTimeFormat('ru-RU', {month:'short'}).format(
 const colors = ['#599781','#a8c593','#d6bf7e','#8ba2bf','#b3a1c8','#7dbbb8','#ce9b8a','#bbc6c9'];
 const types = {deposit:'Пополнение',withdrawal:'Вывод',buy:'Покупка',sell:'Продажа',dividend:'Дивиденды',coupon:'Купон',fee:'Комиссия'};
 const kinds = {stock:'Акции',bond:'Облигации',fund:'Фонды',crypto:'Криптовалюта',metal:'Металлы',other:'Другие активы'};
-const pages = {overview:'Обзор портфеля',assets:'Мои активы',transactions:'Операции',dividends:'Дивиденды',analytics:'Аналитика',settings:'Настройки'};
+const pages = {overview:'Обзор портфеля',assets:'Мои активы',transactions:'Операции',dividends:'Дивиденды',analytics:'Аналитика',tbank:'Т-Инвестиции',settings:'Настройки'};
 const paths = {
  grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
  wallet:'M3 7V5a2 2 0 0 1 2-2h13v4 M3 7h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z M16 11h5v6h-5z',
@@ -35,7 +35,7 @@ const paths = {
  chevron:'m9 5 7 7-7 7',
 };
 function icon(name) { return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name] || paths.grid}"/></svg>`; }
-const state = {meta:null,data:null,pid:null,page:'overview',period:'all',search:'',category:'',txType:'',loadId:0};
+const state = {meta:null,data:null,pid:null,page:'overview',period:'all',search:'',category:'',txType:'',loadId:0,broker:null,brokerAccount:null,brokerId:null};
 let toastTimer, importText = '', importValidated = false;
 
 async function api(path, method = 'GET', body) {
@@ -56,6 +56,11 @@ async function refresh(pid = state.pid) {
   const meta = await api('/meta');
   if (loadId !== state.loadId) return;
   state.meta = meta;
+  state.broker = await api('/tbank');
+  if (loadId !== state.loadId) return;
+  if (!state.broker.accounts.some(a=>a.id===state.brokerId)) state.brokerId=state.broker.accounts[0]?.id || null;
+  state.brokerAccount=state.brokerId?await api(`/tbank/accounts/${encodeURIComponent(state.brokerId)}`):null;
+  if (loadId !== state.loadId) return;
   const preferred = Number(pid || localStorage.getItem('invest-portfolio'));
   state.pid = meta.portfolios.some(p => p.id === preferred) ? preferred : meta.portfolios[0]?.id || null;
   if (state.pid) {
@@ -71,12 +76,13 @@ async function refresh(pid = state.pid) {
 }
 function render() {
   state.page = currentPage();
-  const nav = [['overview','grid'],['assets','wallet'],['transactions','swap'],['dividends','coin'],['analytics','chart'],['settings','settings']];
+  const nav = [['overview','grid'],['assets','wallet'],['transactions','swap'],['dividends','coin'],['analytics','chart'],['tbank','swap'],['settings','settings']];
   $('#navigation').innerHTML = nav.map(([page,name]) => `${page === 'settings' ? '<div class="nav-separator"></div>' : ''}<a href="#${page}" class="${state.page === page ? 'active' : ''}" ${state.page === page ? 'aria-current="page"' : ''}>${icon(name)}${pages[page]}</a>`).join('');
   $('#crumb').textContent = pages[state.page];
   $('#portfolio-select').innerHTML = state.meta.portfolios.length ? state.meta.portfolios.map(p => `<option value="${p.id}" ${p.id === state.pid ? 'selected' : ''}>${esc(p.name)}</option>`).join('') : '<option value="">Нет портфелей</option>';
   $('#portfolio-select').disabled = !state.meta.portfolios.length;
   document.title = `${pages[state.page]} — Инвест Обзор`;
+  if (state.page==='tbank') {$('#main').innerHTML=brokerPage();return;}
   if (!state.data) { $('#main').innerHTML = welcome(); return; }
   const pageRender = {overview,assets:assetsPage,transactions:transactionsPage,dividends:dividendsPage,analytics:analyticsPage,settings:settingsPage};
   $('#main').innerHTML = pageRender[state.page]();
@@ -195,7 +201,7 @@ function rebalanceTable() {
 }
 function settingsPage() {
   const p=state.data.portfolio, rates=new Map(state.meta.rates.map(r=>[r.currency,r]));
-  return heading('Настройки','Ваше пространство, ваши правила.')+`<div class="settings-layout"><section class="card panel"><div class="panel-header"><div><h2>Портфель</h2><p class="panel-subtitle">Основные параметры и цель по капиталу</p></div>${icon('wallet')}</div><form data-form="portfolio" data-id="${p.id}"><div class="form-error" role="alert"></div>${portfolioFields(p)}<div class="form-actions"><button class="button primary" type="submit">Сохранить</button></div></form><div class="danger-zone"><h2>Удаление портфеля</h2><p>Удаляет портфель, его активы, операции и историю. Сначала сохраните резервную копию.</p><button class="button danger small" data-action="delete-portfolio">Удалить портфель</button></div></section><div><section class="card panel"><div class="panel-header"><div><h2>Курсы валют</h2><p class="panel-subtitle">Рублей за единицу валюты · ввод вручную</p></div>${icon('swap')}</div><form data-form="rates"><div class="form-error" role="alert"></div><div class="rates-grid">${state.meta.currencies.map(cur=>`<label class="field"><span class="rate-label">${cur}<small>${rates.has(cur)?day(rates.get(cur).updated_at.slice(0,10)):'Не задан'}</small></span><input name="${cur}" type="number" min="0.000000000001" step="any" value="${esc(rates.get(cur)?.rub||'')}" placeholder="Введите курс" ${cur==='RUB'?'readonly':''}></label>`).join('')}</div><p class="note">Для пересчёта валют задайте курсы валюты актива и базовой валюты. Исторические курсы операций сохраняются отдельно.</p><div class="form-actions"><button class="button primary" type="submit">Сохранить курсы</button></div></form></section><section class="card panel" style="margin-top:20px"><div class="panel-header"><div><h2>Ваши данные</h2><p class="panel-subtitle">Локальная база данных SQLite</p></div>${icon('shield')}</div><div class="heading-actions" style="flex-wrap:wrap"><a class="button" href="/api/backup" download>${icon('download')} Резервная копия</a><a class="button" href="/api/portfolios/${state.pid}/export" download>${icon('download')} Операции CSV</a></div><p class="note">Резервная копия содержит все портфели, котировки, операции и настройки. Для восстановления остановите сервер и замените файл базы, как описано в README.</p><p class="note">Приложение не запрашивает логины брокеров и не отправляет данные во внешние сервисы. Внешняя авторизация и автоматические котировки в этой версии не подключены.</p></section></div></div>`;
+  return heading('Настройки','Ваше пространство, ваши правила.')+`<div class="settings-layout"><section class="card panel"><div class="panel-header"><div><h2>Портфель</h2><p class="panel-subtitle">Основные параметры и цель по капиталу</p></div>${icon('wallet')}</div><form data-form="portfolio" data-id="${p.id}"><div class="form-error" role="alert"></div>${portfolioFields(p)}<div class="form-actions"><button class="button primary" type="submit">Сохранить</button></div></form><div class="danger-zone"><h2>Удаление портфеля</h2><p>Удаляет портфель, его активы, операции и историю. Сначала сохраните резервную копию.</p><button class="button danger small" data-action="delete-portfolio">Удалить портфель</button></div></section><div><section class="card panel"><div class="panel-header"><div><h2>Курсы валют</h2><p class="panel-subtitle">Рублей за единицу валюты · ввод вручную</p></div>${icon('swap')}</div><form data-form="rates"><div class="form-error" role="alert"></div><div class="rates-grid">${state.meta.currencies.map(cur=>`<label class="field"><span class="rate-label">${cur}<small>${rates.has(cur)?day(rates.get(cur).updated_at.slice(0,10)):'Не задан'}</small></span><input name="${cur}" type="number" min="0.000000000001" step="any" value="${esc(rates.get(cur)?.rub||'')}" placeholder="Введите курс" ${cur==='RUB'?'readonly':''}></label>`).join('')}</div><p class="note">Для пересчёта валют задайте курсы валюты актива и базовой валюты. Исторические курсы операций сохраняются отдельно.</p><div class="form-actions"><button class="button primary" type="submit">Сохранить курсы</button></div></form></section><section class="card panel" style="margin-top:20px"><div class="panel-header"><div><h2>Ваши данные</h2><p class="panel-subtitle">Локальная база данных SQLite</p></div>${icon('shield')}</div><div class="heading-actions" style="flex-wrap:wrap"><a class="button" href="/api/backup" download>${icon('download')} Резервная копия</a><a class="button" href="/api/portfolios/${state.pid}/export" download>${icon('download')} Операции CSV</a></div><p class="note">Резервная копия содержит портфели, операции и сохранённые данные брокера. Токены доступа исключаются. Для восстановления остановите сервер и замените файл базы, как описано в README.</p><p class="note">Подключение токена и загрузка счетов доступны в разделе «Т-Инвестиции». Запросы к брокеру выполняются только сервером. Ручные портфели ведутся независимо от брокерских счетов.</p></section></div></div>`;
 }
 function currencyOptions(selected) { return state.meta.currencies.map(c=>`<option value="${c}" ${c===selected?'selected':''}>${c}</option>`).join(''); }
 function inputField(title,name,value='',opts='') {

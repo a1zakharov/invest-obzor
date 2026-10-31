@@ -1,8 +1,10 @@
 FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 INVEST_DB=/data/invest.sqlite3
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 INVEST_DB=/data/invest.sqlite3 INVEST_MASTER_KEY_FILE=/secrets/master.key
 WORKDIR /app
-RUN groupadd --gid 10001 invest && useradd --uid 10001 --gid invest --no-create-home invest && mkdir /data && chown invest:invest /data
-COPY --chown=invest:invest server.py ./
+RUN groupadd --gid 10001 invest && useradd --uid 10001 --gid invest --no-create-home invest && mkdir /data /secrets && chown invest:invest /data /secrets && chmod 700 /secrets
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY --chown=invest:invest server.py tbank.py ./
 COPY --chown=invest:invest static/ ./static/
 USER invest
 EXPOSE 8080

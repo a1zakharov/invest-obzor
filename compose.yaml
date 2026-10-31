@@ -5,6 +5,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - invest-data:/data
+      - invest-secrets:/secrets
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -12,3 +13,4 @@ services:
       - ALL
 volumes:
   invest-data:
+  invest-secrets:
