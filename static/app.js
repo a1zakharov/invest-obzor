@@ -35,7 +35,7 @@ const paths = {
  chevron:'m9 5 7 7-7 7',
 };
 function icon(name) { return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name] || paths.grid}"/></svg>`; }
-const state = {meta:null,data:null,pid:null,page:'overview',period:'all',search:'',category:'',txType:'',loadId:0,broker:null,brokerAccount:null,brokerId:null};
+const state = {meta:null,data:null,pid:null,page:'overview',period:'all',search:'',category:'',txType:'',loadId:0,broker:null,brokerAccount:null,brokerId:null,authRequired:false};
 let toastTimer, importText = '', importValidated = false;
 
 async function api(path, method = 'GET', body) {
@@ -58,7 +58,9 @@ async function refresh(pid = state.pid) {
   if (loadId !== state.loadId) return;
   state.meta = meta;
   const authentication=await api('/auth/status');
+  state.authRequired=authentication.required;
   $('#logout').hidden=!authentication.required;
+  $('#change-password').hidden=!authentication.required;
   state.broker = await api('/tbank');
   if (loadId !== state.loadId) return;
   if (!state.broker.accounts.some(a=>a.id===state.brokerId)) state.brokerId=state.broker.accounts[0]?.id || null;
@@ -86,6 +88,10 @@ function render() {
   $('#portfolio-select').disabled = !state.meta.portfolios.length;
   document.title = `${pages[state.page]} — Инвест Обзор`;
   if (state.page==='tbank') {$('#main').innerHTML=brokerPage();return;}
+  if (state.page==='settings' && !state.data) {
+    $('#main').innerHTML='<div class="page-heading"><div><h1>Настройки</h1><p>Параметры вашего пространства.</p></div></div>'+accountSettings();
+    return;
+  }
   if (!state.data) { $('#main').innerHTML = welcome(); return; }
   const pageRender = {overview,assets:assetsPage,transactions:transactionsPage,dividends:dividendsPage,analytics:analyticsPage,settings:settingsPage};
   $('#main').innerHTML = pageRender[state.page]();
@@ -204,9 +210,15 @@ function rebalanceTable() {
 }
 function settingsPage() {
   const p=state.data.portfolio, rates=new Map(state.meta.rates.map(r=>[r.currency,r]));
-  return heading('Настройки','Ваше пространство, ваши правила.')+`<div class="settings-layout"><section class="card panel"><div class="panel-header"><div><h2>Портфель</h2><p class="panel-subtitle">Основные параметры и цель по капиталу</p></div>${icon('wallet')}</div><form data-form="portfolio" data-id="${p.id}"><div class="form-error" role="alert"></div>${portfolioFields(p)}<div class="form-actions"><button class="button primary" type="submit">Сохранить</button></div></form><div class="danger-zone"><h2>Удаление портфеля</h2><p>Удаляет портфель, его активы, операции и историю. Сначала сохраните резервную копию.</p><button class="button danger small" data-action="delete-portfolio">Удалить портфель</button></div></section><div><section class="card panel"><div class="panel-header"><div><h2>Курсы валют</h2><p class="panel-subtitle">Рублей за единицу валюты · ввод вручную</p></div>${icon('swap')}</div><form data-form="rates"><div class="form-error" role="alert"></div><div class="rates-grid">${state.meta.currencies.map(cur=>`<label class="field"><span class="rate-label">${cur}<small>${rates.has(cur)?day(rates.get(cur).updated_at.slice(0,10)):'Не задан'}</small></span><input name="${cur}" type="number" min="0.000000000001" step="any" value="${esc(rates.get(cur)?.rub||'')}" placeholder="Введите курс" ${cur==='RUB'?'readonly':''}></label>`).join('')}</div><p class="note">Для пересчёта валют задайте курсы валюты актива и базовой валюты. Исторические курсы операций сохраняются отдельно.</p><div class="form-actions"><button class="button primary" type="submit">Сохранить курсы</button></div></form></section><section class="card panel" style="margin-top:20px"><div class="panel-header"><div><h2>Ваши данные</h2><p class="panel-subtitle">Локальная база данных SQLite</p></div>${icon('shield')}</div><div class="heading-actions" style="flex-wrap:wrap"><a class="button" href="/api/backup" download>${icon('download')} Резервная копия</a><a class="button" href="/api/portfolios/${state.pid}/export" download>${icon('download')} Операции CSV</a></div><p class="note">Резервная копия содержит портфели, операции и сохранённые данные брокера. Токены доступа исключаются. Для восстановления остановите сервер и замените файл базы, как описано в README.</p><p class="note">Подключение токена и загрузка счетов доступны в разделе «Т-Инвестиции». Запросы к брокеру выполняются только сервером. Ручные портфели ведутся независимо от брокерских счетов.</p></section></div></div>`;
+  return heading('Настройки','Ваше пространство, ваши правила.')+accountSettings()+`<div class="settings-layout"><section class="card panel"><div class="panel-header"><div><h2>Портфель</h2><p class="panel-subtitle">Основные параметры и цель по капиталу</p></div>${icon('wallet')}</div><form data-form="portfolio" data-id="${p.id}"><div class="form-error" role="alert"></div>${portfolioFields(p)}<div class="form-actions"><button class="button primary" type="submit">Сохранить</button></div></form><div class="danger-zone"><h2>Удаление портфеля</h2><p>Удаляет портфель, его активы, операции и историю. Сначала сохраните резервную копию.</p><button class="button danger small" data-action="delete-portfolio">Удалить портфель</button></div></section><div><section class="card panel"><div class="panel-header"><div><h2>Курсы валют</h2><p class="panel-subtitle">Рублей за единицу валюты · ввод вручную</p></div>${icon('swap')}</div><form data-form="rates"><div class="form-error" role="alert"></div><div class="rates-grid">${state.meta.currencies.map(cur=>`<label class="field"><span class="rate-label">${cur}<small>${rates.has(cur)?day(rates.get(cur).updated_at.slice(0,10)):'Не задан'}</small></span><input name="${cur}" type="number" min="0.000000000001" step="any" value="${esc(rates.get(cur)?.rub||'')}" placeholder="Введите курс" ${cur==='RUB'?'readonly':''}></label>`).join('')}</div><p class="note">Для пересчёта валют задайте курсы валюты актива и базовой валюты. Исторические курсы операций сохраняются отдельно.</p><div class="form-actions"><button class="button primary" type="submit">Сохранить курсы</button></div></form></section><section class="card panel" style="margin-top:20px"><div class="panel-header"><div><h2>Ваши данные</h2><p class="panel-subtitle">Локальная база данных SQLite</p></div>${icon('shield')}</div><div class="heading-actions" style="flex-wrap:wrap"><a class="button" href="/api/backup" download>${icon('download')} Резервная копия</a><a class="button" href="/api/portfolios/${state.pid}/export" download>${icon('download')} Операции CSV</a></div><p class="note">Резервная копия содержит портфели, операции и сохранённые данные брокера. Токены доступа исключаются. Для восстановления остановите сервер и замените файл базы, как описано в README.</p><p class="note">Подключение токена и загрузка счетов доступны в разделе «Т-Инвестиции». Запросы к брокеру выполняются только сервером. Ручные портфели ведутся независимо от брокерских счетов.</p></section></div></div>`;
 }
 function currencyOptions(selected) { return state.meta.currencies.map(c=>`<option value="${c}" ${c===selected?'selected':''}>${c}</option>`).join(''); }
+function accountSettings() {
+  return state.authRequired?`<section class="card panel" style="margin-bottom:22px"><div class="panel-header"><div><h2>Безопасность аккаунта</h2><p class="panel-subtitle">Для смены пароля потребуется текущий пароль. После смены все сессии будут завершены.</p></div>${icon('shield')}</div><button class="button" data-action="change-password">Сменить пароль</button></section>`:'';
+}
+function passwordModal() {
+  openModal('Сменить пароль','После сохранения нужно войти с новым паролем на всех устройствах.',`<form data-password-form><div class="form-error" role="alert"></div><div class="form-grid"><label class="field full">Текущий пароль<input name="current_password" type="password" autocomplete="current-password" required maxlength="1024"></label><label class="field full">Новый пароль<input name="new_password" type="password" autocomplete="new-password" required minlength="16" maxlength="1024"><small>От 16 до 1024 символов, с сохранением пробелов и регистра.</small></label><label class="field full">Повторите новый пароль<input name="confirm_password" type="password" autocomplete="new-password" required minlength="16" maxlength="1024"></label></div><div class="form-actions"><button class="button" type="button" data-action="close-modal">Отмена</button><button class="button primary" type="submit">Сохранить пароль</button></div></form>`);
+}
 function inputField(title,name,value='',opts='') {
   return `<label class="field">${title}<input name="${name}" value="${esc(value)}" ${opts}></label>`;
 }
@@ -278,6 +290,7 @@ document.addEventListener('click',async event=>{
   const {action,id}=el.dataset;
   try {
     if (action==='close-modal') $('#modal').close();
+    else if(action==='change-password') passwordModal();
     else if(action==='new-portfolio') portfolioModal();
     else if(action==='edit-portfolio') portfolioModal(true);
     else if(action==='new-asset') assetModal();
@@ -365,6 +378,23 @@ $('#menu-toggle').addEventListener('click',()=>{const open=$('#sidebar').classLi
 $('#logout').addEventListener('click',async()=>{
   try{await api('/auth/logout','POST',{});location.replace('/login.html');}
   catch(error){toast(error.message,true);}
+});
+$('#change-password').addEventListener('click',passwordModal);
+document.addEventListener('submit',async event=>{
+  const form=event.target.closest('form[data-password-form]');
+  if(!form)return;
+  event.preventDefault();
+  const errorBox=$('.form-error',form),button=$('button[type=submit]',form);
+  const values=Object.fromEntries(new FormData(form));
+  errorBox.textContent='';
+  if(values.new_password!==values.confirm_password){errorBox.textContent='Новый пароль и подтверждение не совпадают';return;}
+  if(values.new_password===values.current_password){errorBox.textContent='Новый пароль должен отличаться от текущего';return;}
+  button.disabled=true;
+  try{
+    await api('/auth/password','POST',values);
+    form.reset();location.replace('/login.html?changed=1');
+  }catch(error){errorBox.textContent=error.message;form.elements.current_password.value='';form.elements.current_password.focus();}
+  finally{button.disabled=false;}
 });
 document.addEventListener('click',event=>{if(!event.target.closest('.sidebar,#menu-toggle')){$('#sidebar').classList.remove('open');$('#menu-toggle').setAttribute('aria-expanded','false');}});
 window.addEventListener('hashchange',()=>{if(state.meta)render();$('#sidebar').classList.remove('open');$('#menu-toggle').setAttribute('aria-expanded','false');});

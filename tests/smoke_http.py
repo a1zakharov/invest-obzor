@@ -218,6 +218,31 @@ class HTTPTests(unittest.TestCase):
         finally:
             del self.httpd.access
 
+    def test_password_change_endpoint_requires_current_password_and_revokes_sessions(self):
+        current, new = 'old-http-test-password-123', 'new-http-test-password-456'
+        config = Path(self.temp.name)/'change-password.json'
+        access_control.write_password(config, 'chat', current, force=True)
+        self.httpd.access = access_control.Access(config)
+        data = {'current_password':current,'new_password':new,'confirm_password':new}
+        try:
+            self.assertEqual(self.request('/api/auth/password','POST',data)[0],401)
+            status, _, headers = self.request('/api/auth/login','POST',{'username':'chat','password':current})
+            self.assertEqual(status,200)
+            cookie = headers['Set-Cookie'].split(';')[0]
+            headers = {'Cookie':cookie}
+            self.assertEqual(self.request('/api/auth/password','POST',data,headers={**headers,'Origin':'http://evil.example'})[0],403)
+            self.assertEqual(self.request('/api/auth/password','POST',{**data,'current_password':'wrong'},headers=headers)[0],400)
+            self.assertEqual(self.request('/api/meta',headers=headers)[0],200)
+            status,body,response_headers = self.request('/api/auth/password','POST',data,headers=headers)
+            self.assertEqual(status,200)
+            self.assertNotIn(new,json.dumps(body))
+            self.assertIn('Max-Age=0',response_headers['Set-Cookie'])
+            self.assertEqual(self.request('/api/meta',headers=headers)[0],401)
+            self.assertEqual(self.request('/api/auth/login','POST',{'username':'chat','password':current})[0],401)
+            self.assertEqual(self.request('/api/auth/login','POST',{'username':'chat','password':new})[0],200)
+        finally:
+            del self.httpd.access
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

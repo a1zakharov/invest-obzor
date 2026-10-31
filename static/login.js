@@ -1,5 +1,6 @@
 'use strict';
 const loginForm=document.querySelector('#login-form');
+document.querySelector('#login-notice').hidden=new URLSearchParams(location.search).get('changed')!=='1';
 loginForm.addEventListener('submit',async event=>{
   event.preventDefault();
   const button=loginForm.querySelector('button'),error=document.querySelector('#login-error');

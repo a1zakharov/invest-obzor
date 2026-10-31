@@ -51,6 +51,7 @@ def write_password(path, username, password, force=False):
         os.replace(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)
+    return data
 
 
 class Access:
@@ -60,6 +61,8 @@ class Access:
         self.sessions = {}
         self.attempts = {}
         self.lock = threading.Lock()
+        self.filename = Path(filename) if filename else None
+        self.generation = 0
         if not self.enabled:
             return
         try:
@@ -102,12 +105,7 @@ class Access:
         with self.lock:
             return self.sessions.get(key, 0) > time.monotonic()
 
-    def login(self, data, client_ip):
-        if not self.enabled:
-            raise AccessError("Вход по паролю не настроен")
-        username, password = data.get("username"), data.get("password")
-        if not isinstance(username, str) or not isinstance(password, str) or len(username) > 80 or len(password) > 1024:
-            raise AccessError("Неверный логин или пароль")
+    def limit_attempts(self, client_ip):
         moment = time.monotonic()
         with self.lock:
             self.attempts = {ip: history for ip, history in self.attempts.items() if history and history[-1] > moment - 60}
@@ -117,18 +115,65 @@ class Access:
             if len(attempts) >= 5 or sum(len(history) for history in self.attempts.values()) >= 30:
                 raise AccessError("Слишком много попыток. Повторите вход через минуту.")
             attempts.append(moment)
+
+    def login(self, data, client_ip):
+        if not self.enabled:
+            raise AccessError("Вход по паролю не настроен")
+        username, password = data.get("username"), data.get("password")
+        if not isinstance(username, str) or not isinstance(password, str) or len(username) > 80 or len(password) > 1024:
+            raise AccessError("Неверный логин или пароль")
+        self.limit_attempts(client_ip)
+        with self.lock:
+            salt, expected, iterations, generation = self.salt, self.expected, self.iterations, self.generation
         # Compute the password hash for unknown usernames as well.
-        valid_password = hmac.compare_digest(digest(password, self.salt, self.iterations), self.expected)
+        valid_password = hmac.compare_digest(digest(password, salt, iterations), expected)
         valid_username = hmac.compare_digest(username.encode(), self.username.encode())
         if not (valid_username and valid_password):
             raise AccessError("Неверный логин или пароль")
         token = secrets.token_urlsafe(32)
         with self.lock:
+            if generation != self.generation:
+                raise AccessError("Пароль изменился. Повторите вход.")
+            moment = time.monotonic()
             self.sessions = {key: expiry for key, expiry in self.sessions.items() if expiry > moment}
             if len(self.sessions) >= 100:
                 self.sessions.pop(next(iter(self.sessions)))
             self.sessions[hashlib.sha256(token.encode()).digest()] = moment + SESSION_TTL
         return self.cookie(token, SESSION_TTL)
+
+    def change_password(self, data, cookie, client_ip):
+        if not self.enabled:
+            raise AccessError("Вход по паролю не настроен")
+        current, new, confirmation = (data.get(field) for field in ("current_password", "new_password", "confirm_password"))
+        if not isinstance(current, str) or not current or len(current) > 1024:
+            raise AccessError("Введите текущий пароль")
+        if not isinstance(new, str) or not 16 <= len(new) <= 1024:
+            raise AccessError("Новый пароль должен содержать от 16 до 1024 символов")
+        if not isinstance(confirmation, str) or new != confirmation:
+            raise AccessError("Новый пароль и подтверждение не совпадают")
+        if new == current:
+            raise AccessError("Новый пароль должен отличаться от текущего")
+        self.limit_attempts(client_ip)
+        key = self.session_key(cookie)
+        with self.lock:
+            if self.sessions.get(key, 0) <= time.monotonic():
+                raise AccessError("Войдите в приложение заново")
+            salt, expected, iterations, generation = self.salt, self.expected, self.iterations, self.generation
+        if not hmac.compare_digest(digest(current, salt, iterations), expected):
+            raise AccessError("Текущий пароль указан неверно")
+        with self.lock:
+            if generation != self.generation or self.sessions.get(key, 0) <= time.monotonic():
+                raise AccessError("Сессия или пароль изменились. Войдите заново.")
+            try:
+                config = write_password(self.filename, self.username, new, force=True)
+            except OSError:
+                raise AccessError("Не удалось сохранить пароль. Проверьте доступ к хранилищу секретов.") from None
+            self.salt = base64.b64decode(config["salt"])
+            self.expected = base64.b64decode(config["hash"])
+            self.iterations = config["iterations"]
+            self.generation += 1
+            self.sessions.clear()
+        return self.cookie("", 0)
 
     def cookie(self, value, max_age):
         return f"{COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}" + ("; Secure" if self.secure else "")

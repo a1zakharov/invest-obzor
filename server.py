@@ -523,6 +523,15 @@ class Handler(BaseHTTPRequestHandler):
             cookie = access.logout(self.headers.get("Cookie")) if access else ""
             self.respond(200, {"ok": True}, extra={"Set-Cookie": cookie})
             return None
+        if path == "/api/auth/password" and method == "POST":
+            try:
+                if access is None:
+                    raise access_control.AccessError("Вход по паролю не настроен")
+                cookie = access.change_password(data, self.headers.get("Cookie"), self.client_address[0])
+                self.respond(200, {"ok": True}, extra={"Set-Cookie": cookie})
+            except access_control.AccessError as exc:
+                self.respond(400, {"error": str(exc)})
+            return None
         if path == "/api/tbank" or path.startswith("/api/tbank/"):
             return tbank.route(db, path, method, data)
         if path == "/api/health" and method == "GET":
