@@ -150,6 +150,15 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request(self.base+'/transactions', 'POST', {'type': 'buy', 'date': '2025-01-01', 'asset_id': [], 'quantity': 1, 'price': 100})[0], 400)
         self.assertEqual(self.request('/api/missing')[0], 404)
 
+    def test_explicit_lan_host_preserves_origin_and_host_protection(self):
+        headers = {'Host': '192.168.0.100:8900'}
+        self.assertEqual(self.request('/api/meta', headers=headers)[0], 403)
+        with patch.dict('os.environ', {'INVEST_ALLOWED_HOSTS': '192.168.0.100'}):
+            self.assertEqual(self.request('/api/meta', headers=headers)[0], 200)
+            self.assertEqual(self.request('/api/meta', headers={**headers, 'Origin': 'http://192.168.0.100:8900'})[0], 200)
+            self.assertEqual(self.request('/api/meta', headers={**headers, 'Origin': 'https://evil.example'})[0], 403)
+            self.assertEqual(self.request('/api/meta', headers={'Host': 'evil.example'})[0], 403)
+
     def test_rates_save_and_fixed_ruble(self):
         self.assertEqual(self.request('/api/rates', 'PUT', {'rates': {'USD': 90}})[0], 200)
         self.assertEqual(self.request('/api/rates', 'PUT', {'rates': {'RUB': 2}})[0], 400)

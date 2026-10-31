@@ -447,11 +447,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             if path.startswith("/api/"):
-                # Reject cross-origin writes and DNS rebinding on this local, single-user service.
+                # Reject cross-origin requests and DNS rebinding, including in explicit LAN deployments.
                 host = self.headers.get("Host", "")
                 hostname = urlparse("http://" + host).hostname
-                if hostname not in ("localhost", "127.0.0.1", "::1", "testserver"):
-                    self.respond(403, {"error": "Используйте localhost или 127.0.0.1"})
+                allowed_hosts = {"localhost", "127.0.0.1", "::1", "testserver"}
+                allowed_hosts.update(value.strip().lower() for value in os.environ.get("INVEST_ALLOWED_HOSTS", "").split(",") if value.strip())
+                if hostname not in allowed_hosts:
+                    self.respond(403, {"error": "Адрес не разрешён. Используйте настроенный адрес сервиса."})
                     return
                 origin = self.headers.get("Origin")
                 if origin and origin != "http://" + host:
