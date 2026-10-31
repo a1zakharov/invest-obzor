@@ -34,8 +34,8 @@ def write_password(path, username, password, force=False):
     path = Path(path)
     if not isinstance(username, str) or not 1 <= len(username) <= 80:
         raise AccessError("Логин должен содержать от 1 до 80 символов")
-    if not isinstance(password, str) or not 16 <= len(password) <= 1024:
-        raise AccessError("Пароль должен содержать от 16 до 1024 символов")
+    if not isinstance(password, str) or not 9 <= len(password) <= 1024:
+        raise AccessError("Пароль должен содержать от 9 до 1024 символов")
     if path.exists() and not force:
         raise AccessError("Файл уже существует. Для смены пароля используйте --force и перезапустите сервис.")
     salt = secrets.token_bytes(32)
@@ -147,8 +147,8 @@ class Access:
         current, new, confirmation = (data.get(field) for field in ("current_password", "new_password", "confirm_password"))
         if not isinstance(current, str) or not current or len(current) > 1024:
             raise AccessError("Введите текущий пароль")
-        if not isinstance(new, str) or not 16 <= len(new) <= 1024:
-            raise AccessError("Новый пароль должен содержать от 16 до 1024 символов")
+        if not isinstance(new, str) or not 9 <= len(new) <= 1024:
+            raise AccessError("Новый пароль должен содержать от 9 до 1024 символов")
         if not isinstance(confirmation, str) or new != confirmation:
             raise AccessError("Новый пароль и подтверждение не совпадают")
         if new == current:
@@ -195,7 +195,7 @@ def main():
         import sys
         password = sys.stdin.readline(1026).rstrip("\n")
     else:
-        password = getpass.getpass("Новый пароль (от 16 символов): ")
+        password = getpass.getpass("Новый пароль (от 9 символов): ")
         if password != getpass.getpass("Повторите пароль: "):
             parser.error("Пароли не совпали")
     try:

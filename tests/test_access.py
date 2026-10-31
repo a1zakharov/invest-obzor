@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import access_control as auth
 
 PASSWORD = 'test-password-for-auth-only-123'
-NEW_PASSWORD = 'new-test-password-for-auth-456'
+NEW_PASSWORD = 'new-pass9'
 
 
 class AccessTests(unittest.TestCase):
@@ -117,7 +117,7 @@ class AccessTests(unittest.TestCase):
     def test_invalid_new_password_and_confirmation_leave_credentials_unchanged(self):
         cookie = self.access.login({'username':'chat','password':PASSWORD}, 'client')
         original = self.path.read_bytes()
-        updates = [{'new_password':'short','confirm_password':'short'},
+        updates = [{'new_password':'short123','confirm_password':'short123'},
                    {'confirm_password':'different'}, {'new_password':None},
                    {'new_password':PASSWORD,'confirm_password':PASSWORD},
                    {'new_password':'x'*1025,'confirm_password':'x'*1025}]

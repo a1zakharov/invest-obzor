@@ -219,7 +219,7 @@ class HTTPTests(unittest.TestCase):
             del self.httpd.access
 
     def test_password_change_endpoint_requires_current_password_and_revokes_sessions(self):
-        current, new = 'old-http-test-password-123', 'new-http-test-password-456'
+        current, new = 'old-http-test-password-123', 'new-pass9'
         config = Path(self.temp.name)/'change-password.json'
         access_control.write_password(config, 'chat', current, force=True)
         self.httpd.access = access_control.Access(config)
@@ -230,6 +230,7 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(status,200)
             cookie = headers['Set-Cookie'].split(';')[0]
             headers = {'Cookie':cookie}
+            self.assertEqual(self.request('/api/auth/password','POST',{**data,'new_password':'short123','confirm_password':'short123'},headers=headers)[0],400)
             self.assertEqual(self.request('/api/auth/password','POST',data,headers={**headers,'Origin':'http://evil.example'})[0],403)
             self.assertEqual(self.request('/api/auth/password','POST',{**data,'current_password':'wrong'},headers=headers)[0],400)
             self.assertEqual(self.request('/api/meta',headers=headers)[0],200)
